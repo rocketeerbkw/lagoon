@@ -153,7 +153,7 @@ const messageConsumer = async msg => {
     case "error":
       try {
         const buildLog = await buildsLogGet()
-        const s3UploadResult = await uploadLogToS3(buildName, projectName, branchName, buildLog)
+        const s3UploadResult = await uploadLogToS3(buildName, projectName, branchName, gitSha, buildLog)
         logLink = `<${s3UploadResult.Location}|Logs>`
       } catch (err) {
         logger.warn(`${openshiftProject} ${buildName}: Error while getting and uploading Logs to S3, Error: ${err}. Continuing without log link in message`)
@@ -166,7 +166,7 @@ const messageConsumer = async msg => {
     case "failed":
       try {
         const buildLog = await buildsLogGet()
-        const s3UploadResult = await uploadLogToS3(buildName, projectName, branchName, buildLog)
+        const s3UploadResult = await uploadLogToS3(buildName, projectName, branchName, gitSha, buildLog)
         logLink = `<${s3UploadResult.Location}|Logs>`
       } catch (err) {
         logger.warn(`${openshiftProject} ${buildName}: Error while getting and uploading Logs to S3, Error: ${err}. Continuing without log link in message`)
@@ -180,7 +180,7 @@ const messageConsumer = async msg => {
     case "complete":
       try {
         const buildLog = await buildsLogGet()
-        const s3UploadResult = await uploadLogToS3(buildName, projectName, branchName, buildLog)
+        const s3UploadResult = await uploadLogToS3(buildName, projectName, branchName, gitSha, buildLog)
         logLink = `<${s3UploadResult.Location}|Logs>`
       } catch (err) {
         logger.warn(`${openshiftProject} ${buildName}: Error while getting and uploading Logs to S3, Error: ${err}. Continuing without log link in message`)
@@ -203,9 +203,9 @@ const messageConsumer = async msg => {
 
 }
 
-const uploadLogToS3 = async (buildName, projectName, branchName, buildLog) => {
+const uploadLogToS3 = async (buildName, projectName, branchName, gitSha, buildLog) => {
 
-  const hash = crypto.createHash('sha256', `${buildName}:${projectName}:${branchName}`).digest('hex');
+  const hash = crypto.createHash('sha256', `${gitSha}:${buildName}:${projectName}:${branchName}`).digest('hex');
 
   const path = `${projectName}/${branchName}/${hash}.txt`
 
