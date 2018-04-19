@@ -205,7 +205,7 @@ const messageConsumer = async msg => {
 
 const uploadLogToS3 = async (buildName, projectName, branchName, gitSha, buildLog) => {
 
-  const hash = crypto.createHash('sha256', `${buildName}:${projectName}:${branchName}`).digest('hex');
+  const hash = crypto.createHash('sha256', `${gitSha}:${buildName}:${projectName}:${branchName}`).digest('hex');
 
   const path = `${projectName}/${branchName}/${hash}.txt`
 
