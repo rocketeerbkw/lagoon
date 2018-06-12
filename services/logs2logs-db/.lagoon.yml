@@ -82,6 +82,16 @@ objects:
                 secretKeyRef:
                   key: RABBITMQ_PASSWORD
                   name: rabbitmq-password
+            - name: LOGSTASH_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: logstash-username
+                  key: LOGSTASH_USERNAME
+            - name: LOGSTASH_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: logstash-password
+                  key: LOGSTASH_PASSWORD
           resources:
             requests:
               cpu: 10m

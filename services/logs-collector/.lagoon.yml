@@ -31,6 +31,15 @@ parameters:
   - name: REGISTRY
     description: Registry where Images are pushed to
     required: true
+  - name: DEPLOYMENT_STRATEGY
+    description: Strategy of Deploymentconfig
+    value: "Rolling"
+  - name: SERVICE_IMAGE
+    description: Pullable image of service
+    required: true
+  - name: CRONJOBS
+    description: Oneliner of Cronjobs
+    value: ""
 objects:
 - apiVersion: v1
   kind: DeploymentConfig
@@ -55,18 +64,18 @@ objects:
           project: ${SAFE_PROJECT}
       spec:
         containers:
-        - image: ${REGISTRY}/${OPENSHIFT_PROJECT}/${SERVICE_NAME}:latest
+        - image: ${SERVICE_IMAGE}
           name: ${SERVICE_NAME}
           ports:
-          - containerPort: 24224
+          - containerPort: 24284
             protocol: TCP
           readinessProbe:
             tcpSocket:
-              port: 24224
+              port: 24284
             initialDelaySeconds: 20
           livenessProbe:
             tcpSocket:
-              port: 24224
+              port: 24284
             initialDelaySeconds: 120
           envFrom:
           - configMapRef:
