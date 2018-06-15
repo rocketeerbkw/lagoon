@@ -24,7 +24,7 @@ GRAPHQL='query developmentEnvironments {
 query=$(set -e -o pipefail; echo $GRAPHQL | sed 's/"/\\"/g' | sed 's/\\n/\\\\n/g' | awk -F'\n' '{if(NR == 1) {printf $0} else {printf "\\n"$0}}')
 DEVELOPMENT_ENVIRONMENTS=$(set -e -o pipefail; curl -s -XPOST -H 'Content-Type: application/json' -H "$BEARER" api:3000/graphql -d "{\"query\": \"$query\"}")
 
-# Load all hits of all environments of the last hour
+# Load all hits of all environments of the last 4 hours
 ALL_ENVIRONMENT_HITS=$(curl -s -XGET "http://logs-db:9200/router-logs-*/_search" -H 'Content-Type: application/json' -d'
 {
   "size": 0,
@@ -41,7 +41,7 @@ ALL_ENVIRONMENT_HITS=$(curl -s -XGET "http://logs-db:9200/router-logs-*/_search"
       "filter": {
         "range": {
           "@timestamp": {
-            "gte": "now-1h"
+            "gte": "now-4h"
           }
         }
       }
@@ -78,11 +78,11 @@ echo "$DEVELOPMENT_ENVIRONMENTS" | jq -c '.data.developmentEnvironments[] | sele
             continue
           elif [ "$HAS_HITS" == "true" ]; then
             HITS=$(echo $ALL_ENVIRONMENT_HITS | jq ".[] | select(.key==\"$ENVIRONMENT_OPENSHIFT_PROJECTNAME\") | .doc_count")
-            echo "$OPENSHIFT_URL - $PROJECT_NAME: $ENVIRONMENT_NAME had $HITS hits in last hour, no idleing"
+            echo "$OPENSHIFT_URL - $PROJECT_NAME: $ENVIRONMENT_NAME had $HITS hits in last 4 hours, no idling"
           else
-            echo "$OPENSHIFT_URL - $PROJECT_NAME: $ENVIRONMENT_NAME had no hits in last hour, starting to idle"
-            # actually idleing happens here
-            oc --insecure-skip-tls-verify --token="$OPENSHIFT_TOKEN" --server="$OPENSHIFT_URL" -n "$ENVIRONMENT_OPENSHIFT_PROJECTNAME" idle --all
+            echo "$OPENSHIFT_URL - $PROJECT_NAME: $ENVIRONMENT_NAME had no hits in last 4 hours, starting to idle"
+            # actually idling happens here
+            oc --insecure-skip-tls-verify --token="$OPENSHIFT_TOKEN" --server="$OPENSHIFT_URL" -n "$ENVIRONMENT_OPENSHIFT_PROJECTNAME" idle --selector allow-idler=yes
 
             ### Faster Unidling:
             ## Instead of depending that each endpoint is unidling their own service (which means it takes a lot of time to unidle multiple services)
