@@ -20,12 +20,14 @@ RUN chmod g+w /etc/passwd \
 ENV TMPDIR=/tmp TMP=/tmp HOME=/home ENV=/home/.bashrc BASH_ENV=/home/.bashrc
 
 COPY check_fcgi /usr/sbin/
-COPY entrypoints/70-php-config.sh entrypoints/60-php-xdebug.sh entrypoints/50-ssmtp.sh entrypoints/71-php-newrelic.sh /lagoon/entrypoints/
+COPY entrypoints/70-php-config.sh entrypoints/60-php-xdebug.sh entrypoints/50-ssmtp.sh entrypoints/71-php-newrelic.sh entrypoints/40-syslog.sh /lagoon/entrypoints/
 
 COPY php.ini /usr/local/etc/php/
 COPY 00-lagoon-php.ini.tpl /usr/local/etc/php/conf.d/
 COPY php-fpm.d/www.conf /usr/local/etc/php-fpm.d/www.conf
 COPY ssmtp.conf /etc/ssmtp/ssmtp.conf
+COPY rsyslog/local.conf /etc/rsyslog.conf
+COPY rsyslog/remote.conf /etc/rsyslog-remote.conf
 
 ENV NEWRELIC_VERSION=8.1.0.209
 
@@ -33,6 +35,7 @@ RUN apk update \
     && apk upgrade \
     && apk add --no-cache fcgi \
         ssmtp \
+        rsyslog \
         # for gd
         libpng-dev \
         libjpeg-turbo-dev \
@@ -80,7 +83,8 @@ RUN apk update \
     && mkdir -p /app \
     && fix-permissions /usr/local/etc/ \
     && fix-permissions /app \
-    && fix-permissions /etc/ssmtp/ssmtp.conf
+    && fix-permissions /etc/ssmtp/ssmtp.conf \
+    && fix-permissions /etc/rsyslog-remote.conf
 
 EXPOSE 9000
 
