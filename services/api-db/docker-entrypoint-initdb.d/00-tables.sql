@@ -272,3 +272,11 @@ CREATE TABLE IF NOT EXISTS task_file (
   fid int REFERENCES file (id),
   CONSTRAINT task_file_pkey PRIMARY KEY (tid, fid)
 );
+
+CREATE TABLE cache_authz (
+  id int(11) unsigned NOT NULL AUTO_INCREMENT,
+  `key` varchar(300) NOT NULL DEFAULT '',
+  allowed tinyint(1) NOT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE `key` (`key`)
+);
