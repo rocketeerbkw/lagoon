@@ -78,7 +78,7 @@ const apolloServer = new ApolloServer({
         keycloakAdminClient,
         sqlClient,
         hasPermission: grant
-          ? keycloakHasPermission(grant, requestCache, keycloakAdminClient)
+          ? keycloakHasPermission(grant, requestCache, keycloakAdminClient, sqlClient)
           : legacyHasPermission(legacyCredentials),
         keycloakGrant: grant,
         requestCache,
@@ -132,7 +132,8 @@ const apolloServer = new ApolloServer({
           ? keycloakHasPermission(
               req.kauth.grant,
               requestCache,
-              keycloakAdminClient
+              keycloakAdminClient,
+              sqlClient
             )
           : legacyHasPermission(req.legacyCredentials),
         keycloakGrant: req.kauth ? req.kauth.grant : null,

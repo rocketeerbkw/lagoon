@@ -4,7 +4,7 @@ import * as logger from '../logger';
 import { keycloakGrantManager } from'../clients/keycloakClient';
 import { User } from '../models/user';
 import { Group } from '../models/group';
-
+import { query, prepare } from './db';
 
 const { JWTSECRET, JWTAUDIENCE } = process.env;
 
@@ -38,6 +38,7 @@ const sortRolesByWeight = (a, b) => {
 };
 
 export const getGrantForKeycloakToken = async (sqlClient, token) => {
+  console.log('getGrantForKeycloakToken');
   let grant = '';
   try {
     grant = await keycloakGrantManager.createGrant({
@@ -99,13 +100,12 @@ export class KeycloakUnauthorizedError extends Error {
   }
 }
 
-export const keycloakHasPermission = (grant, requestCache, keycloakAdminClient) => {
+export const keycloakHasPermission = (grant, requestCache, keycloakAdminClient, sqlClient) => {
   const UserModel = User({ keycloakAdminClient });
   const GroupModel = Group({ keycloakAdminClient });
 
   return async (resource, scope, attributes: IKeycloakAuthAttributes = {}) => {
     const currentUserId: string = grant.access_token.content.sub;
-    const currentUser = await UserModel.loadUserById(currentUserId);
 
     // Check if the same set of permissions has been granted already for this
     // api query.
@@ -114,9 +114,115 @@ export const keycloakHasPermission = (grant, requestCache, keycloakAdminClient) 
     const cacheKey = `${currentUserId}:${resource}:${scope}:${JSON.stringify(attributes)}`;
     const cachedPermissions = requestCache.get(cacheKey);
     if (cachedPermissions !== undefined) {
+      // console.log('request cached', cachedPermissions);
       return cachedPermissions;
     }
 
+    /**
+      66797b5f-85f2-468b-82f8-533143d0ddf4:deployment:view:{"project":"1003"}
+
+        {
+          projectId: {
+            resourceName: {
+              scopeName: boolean
+            }
+          }
+        }
+
+        {
+          projects: {
+            100: {
+              deployment: {
+                view: true,
+                update: false
+              },
+              backup: {
+                view: true,
+              }
+            }
+          },
+          groups: {
+
+          },
+          users: {
+
+          }
+        }
+
+      --------------------------------------------------------
+      | id | user id                              | permissions
+      -------------------------------------------------------
+      | 1  | 66797b5f-85f2-468b-82f8-533143d0ddf4 |
+
+
+
+
+
+
+
+     */
+
+    // console.log('not request cached');
+    let dbCachedPermissions = {
+      projects: {},
+      groups: {},
+      users: {},
+    };
+    const prep = prepare(sqlClient, 'SELECT permissions FROM cache_authz WHERE `usid` = ?');
+    const rows = await query(sqlClient, prep([currentUserId]));
+    console.log('rows', rows);
+    if (rows.length !== 0) {
+      dbCachedPermissions = JSON.parse(rows[0].permissions);
+      let projectPermissionResult;
+      let groupPermissionResult;
+      let userPermissionResult;
+
+      if (R.prop('project', attributes)) {
+        // @ts-ignore
+        const projectId = parseInt(R.prop('project', attributes), 10);
+        const projectPermissions = R.path(['projects', projectId, resource, scope], cachedPermissions);
+
+        if (projectPermissions !== undefined) {
+          if (projectPermissions === true) {
+            projectPermissionResult = true;
+          } else {
+            projectPermissionResult = false;
+          }
+        }
+      }
+
+      // if (R.prop('group', attributes)) {
+      // }
+
+      // const usersAttribute = R.prop('users', attributes);
+      // if (usersAttribute && usersAttribute.length) {
+
+      // }
+
+      if (projectPermissionResult || groupPermissionResult || userPermissionResult) {
+        if (projectPermissionResult === true) {
+          return true;
+        } else if (projectPermissionResult === false) {
+          throw new KeycloakUnauthorizedError(`Unauthorized: You don't have permission to "${scope}" on "${resource}".`);
+        }
+
+        if (groupPermissionResult === true) {
+          return true;
+        } else if (groupPermissionResult === false) {
+          throw new KeycloakUnauthorizedError(`Unauthorized: You don't have permission to "${scope}" on "${resource}".`);
+        }
+
+        if (userPermissionResult === true) {
+          return true;
+        } else if (userPermissionResult === false) {
+          throw new KeycloakUnauthorizedError(`Unauthorized: You don't have permission to "${scope}" on "${resource}".`);
+        }
+      }
+
+
+    }
+
+    const currentUser = await UserModel.loadUserById(currentUserId);
     const serviceAccount = await keycloakGrantManager.obtainFromClientCredentials();
 
     let claims: {
@@ -244,11 +350,43 @@ export const keycloakHasPermission = (grant, requestCache, keycloakAdminClient) 
       },
     };
 
+    const sql = 'INSERT INTO cache_authz (`id`, `usid`, `permissions`) VALUES (null, ?, ?) ON DUPLICATE KEY UPDATE `permissions` = VALUES(`permissions`)';
+    const insertCacheQuery = prepare(sqlClient, sql);
+
     try {
       const newGrant = await keycloakGrantManager.checkPermissions(authzRequest, request);
 
       if (newGrant.access_token.hasPermission(resource, scope)) {
         requestCache.set(cacheKey, true);
+
+        let insertPermissions = dbCachedPermissions;
+        if (R.prop('project', attributes)) {
+          // @ts-ignore
+          const projectId = parseInt(R.prop('project', attributes), 10);
+
+          insertPermissions = {
+            ...dbCachedPermissions,
+            projects: {
+              ...dbCachedPermissions.projects,
+              [projectId]: {
+                [resource]: {
+                  [scope]: true,
+                }
+              }
+            }
+          }
+        }
+
+        // if (R.prop('group', attributes)) {
+        // }
+
+        // const usersAttribute = R.prop('users', attributes);
+        // if (usersAttribute && usersAttribute.length) {
+
+        // }
+        console.log('insertQuery', insertCacheQuery([currentUserId, JSON.stringify(insertPermissions)]));
+
+        await query(sqlClient, insertCacheQuery([currentUserId, JSON.stringify(insertPermissions)]));
         return;
       }
     } catch (err) {
@@ -258,6 +396,35 @@ export const keycloakHasPermission = (grant, requestCache, keycloakAdminClient) 
     }
 
     requestCache.set(cacheKey, false);
+
+    let insertPermissions;
+    if (R.prop('project', attributes)) {
+      // @ts-ignore
+      const projectId = parseInt(R.prop('project', attributes), 10);
+
+      insertPermissions = {
+        ...dbCachedPermissions,
+        projects: {
+          ...dbCachedPermissions.projects,
+          [projectId]: {
+            [resource]: {
+              [scope]: false,
+            }
+          }
+        }
+      }
+    }
+
+    // if (R.prop('group', attributes)) {
+    // }
+
+    // const usersAttribute = R.prop('users', attributes);
+    // if (usersAttribute && usersAttribute.length) {
+
+    // }
+
+
+    await query(sqlClient, insertCacheQuery([cacheKey, 0]));
     throw new KeycloakUnauthorizedError(`Unauthorized: You don't have permission to "${scope}" on "${resource}".`);
   };
 };
