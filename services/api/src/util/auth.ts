@@ -4,7 +4,7 @@ import * as logger from '../logger';
 import { keycloakGrantManager } from'../clients/keycloakClient';
 import { User } from '../models/user';
 import { Group } from '../models/group';
-
+import { query, prepare } from './db';
 
 const { JWTSECRET, JWTAUDIENCE } = process.env;
 
@@ -38,6 +38,7 @@ const sortRolesByWeight = (a, b) => {
 };
 
 export const getGrantForKeycloakToken = async (sqlClient, token) => {
+  console.log('getGrantForKeycloakToken');
   let grant = '';
   try {
     grant = await keycloakGrantManager.createGrant({
@@ -99,13 +100,12 @@ export class KeycloakUnauthorizedError extends Error {
   }
 }
 
-export const keycloakHasPermission = (grant, requestCache, keycloakAdminClient) => {
+export const keycloakHasPermission = (grant, requestCache, keycloakAdminClient, sqlClient) => {
   const UserModel = User({ keycloakAdminClient });
   const GroupModel = Group({ keycloakAdminClient });
 
   return async (resource, scope, attributes: IKeycloakAuthAttributes = {}) => {
     const currentUserId: string = grant.access_token.content.sub;
-    const currentUser = await UserModel.loadUserById(currentUserId);
 
     // Check if the same set of permissions has been granted already for this
     // api query.
@@ -114,9 +114,27 @@ export const keycloakHasPermission = (grant, requestCache, keycloakAdminClient) 
     const cacheKey = `${currentUserId}:${resource}:${scope}:${JSON.stringify(attributes)}`;
     const cachedPermissions = requestCache.get(cacheKey);
     if (cachedPermissions !== undefined) {
+      // console.log('request cached', cachedPermissions);
       return cachedPermissions;
     }
 
+    // console.log('not request cached');
+    const prep = prepare(sqlClient, 'SELECT * FROM cache_authz WHERE `key` = ?');
+    const rows = await query(sqlClient, prep([cacheKey]));
+    // console.log('rows', rows);
+    if (rows.length !== 0) {
+      const allowed = parseInt(rows[0].allowed, 10);
+
+      if (allowed) {
+        // console.log('db cache allowed');
+        return;
+      } else {
+        console.log('db cache denied');
+        throw new KeycloakUnauthorizedError(`Unauthorized: You don't have permission to "${scope}" on "${resource}".`);
+      }
+    }
+
+    const currentUser = await UserModel.loadUserById(currentUserId);
     const serviceAccount = await keycloakGrantManager.obtainFromClientCredentials();
 
     let claims: {
@@ -244,11 +262,16 @@ export const keycloakHasPermission = (grant, requestCache, keycloakAdminClient) 
       },
     };
 
+    const sql = 'INSERT INTO cache_authz (`id`, `key`, `allowed`) VALUES (null, ?, ?) ON DUPLICATE KEY UPDATE `allowed` = VALUES(`allowed`)';
+    const insertCacheQuery = prepare(sqlClient, sql);
+
     try {
       const newGrant = await keycloakGrantManager.checkPermissions(authzRequest, request);
 
       if (newGrant.access_token.hasPermission(resource, scope)) {
         requestCache.set(cacheKey, true);
+
+        await query(sqlClient, insertCacheQuery([cacheKey, 1]));
         return;
       }
     } catch (err) {
@@ -258,6 +281,7 @@ export const keycloakHasPermission = (grant, requestCache, keycloakAdminClient) 
     }
 
     requestCache.set(cacheKey, false);
+    await query(sqlClient, insertCacheQuery([cacheKey, 0]));
     throw new KeycloakUnauthorizedError(`Unauthorized: You don't have permission to "${scope}" on "${resource}".`);
   };
 };
